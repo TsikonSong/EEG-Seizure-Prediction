@@ -1,0 +1,22 @@
+{
+  "EEGNet": {
+    "params": 7002,
+    "mflops": 99.1,
+    "latency_ms": 41.9
+  },
+  "TCN": {
+    "params": 484738,
+    "mflops": 4933.2,
+    "latency_ms": 92.6
+  },
+  "1D-CNN": {
+    "params": 520322,
+    "mflops": 283.8,
+    "latency_ms": 25.8
+  },
+  "EEG-Conformer": {
+    "params": 760746,
+    "mflops": 220.8,
+    "latency_ms": 35.8
+  }
+}
