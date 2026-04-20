@@ -1,4 +1,4 @@
-### 📝 Reproducibility Guide
+### Reproducibility Guide
 
 To ensure 100% replication of the results presented in our AIIM paper, please follow these steps:
 
