@@ -1,0 +1,24 @@
+# Core Deep Learning
+torch>=2.0.0
+torchvision
+torchaudio
+
+# EEG Signal Processing
+mne>=1.4.0
+pyedflib
+scipy
+
+# Data Science & Analytics
+numpy>=1.23.5
+pandas>=1.5.3
+scikit-learn>=1.2.2
+
+# Interpretability & Visualization
+shap>=0.41.0
+matplotlib>=3.7.1
+seaborn>=0.12.2
+
+# Utilities
+tqdm
+openpyxl
+jupyter
