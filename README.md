@@ -13,8 +13,8 @@ To ensure 100% replication of the results presented in our AIIM paper, please fo
    Specific random seeds and hyperparameter configurations for each of the 24 patient cases are detailed in `patient_specific_results.csv`.
 
 4. **Model Execution**: 
-   - The core architectures (TCN, EEGNet, Conformer) are defined in `models.py`.
-   - Training workflows are provided in the respective `train_.ipynb` notebooks.
+   The core architectures (TCN, EEGNet, Conformer) are defined in `models.py`.
+   Training workflows are provided in the respective `train_.ipynb` notebooks.
 
 5. **Statistical Analysis**: 
    Refer to `statistical_tests.ipynb` for the p-value calculations and significance testing.
