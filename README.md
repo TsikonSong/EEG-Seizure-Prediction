@@ -60,7 +60,23 @@ docs\                    script map and data notes
 
 ## Main analysis groups
 
-`work_A` through `work_J` reproduce the main analysis panels and robustness checks. `work_K` and `work_L` cover the Siena preparation and external-transfer check.
+The analysis scripts are in `scripts/analysis`:
+
+- `work_A_sens_spec_bimodality.py`
+- `work_B_wideband_analysis.py`
+- `work_C_signal_visualization.py`
+- `work_D_case_series.py`
+- `work_E_permutation_null.py`
+- `work_F_exclude_chb19_sensitivity.py`
+- `work_G_ps_leakage_audit.py`
+- `work_H_subject_level_pi.py`
+- `work_I_far_silencing_simulation.py`
+- `work_J_far_constrained_sensitivity.py`
+
+The Siena scripts are in `scripts/siena`:
+
+- `work_K_siena_feasibility.py`
+- `work_L_siena_external_psd_lda.py`
 
 The notebooks record the interactive runs. The reusable code lives in `src` and `scripts`.
 
