@@ -4,17 +4,41 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
-# ---------------------------------------------------------------------------
+#
 # Constants
-# ---------------------------------------------------------------------------
-
+#
 WIN = 20 * 256  # 5120 samples per 20-second window
 
 VALID_PATIENTS = [
     'chb01', 'chb02', 'chb03', 'chb04', 'chb05', 'chb06', 'chb07', 'chb08',
     'chb09', 'chb10', 'chb11', 'chb12', 'chb13', 'chb14', 'chb15', 'chb16',
     'chb17', 'chb18', 'chb19', 'chb20', 'chb21', 'chb22', 'chb23',
-]  # 23 patients (chb24 excluded)
+]  # 23 cases (chb24 excluded); chb01/chb21 are the same subject.
+
+SUBJECT_GROUPS = [
+    ('chb01', 'chb21'),
+    ('chb02',),
+    ('chb03',),
+    ('chb04',),
+    ('chb05',),
+    ('chb06',),
+    ('chb07',),
+    ('chb08',),
+    ('chb09',),
+    ('chb10',),
+    ('chb11',),
+    ('chb12',),
+    ('chb13',),
+    ('chb14',),
+    ('chb15',),
+    ('chb16',),
+    ('chb17',),
+    ('chb18',),
+    ('chb19',),
+    ('chb20',),
+    ('chb22',),
+    ('chb23',),
+]  # 22 unique subjects / subject groups across 23 cases.
 
 SEEDS = [42, 123, 456, 789, 1024,
          2025, 3141, 4096, 5555, 6174,
@@ -27,10 +51,9 @@ _N_TEST = 4
 DATA_DIR = r'D:\chbmit_preprocessed'
 
 
-# ---------------------------------------------------------------------------
+#
 # Patient split
-# ---------------------------------------------------------------------------
-
+#
 def make_patient_splits(seed, patients=None):
     if patients is None:
         patients = VALID_PATIENTS
@@ -43,10 +66,35 @@ def make_patient_splits(seed, patients=None):
     return train_pts, val_pts, test_pts
 
 
-# ---------------------------------------------------------------------------
-# Dataset
-# ---------------------------------------------------------------------------
+def make_subject_splits(seed, subject_groups=None, n_val=4, n_test=4):
+    """Subject-level split with chb01/chb21 tied to the same partition.
 
+    The split operates on subject groups rather than case IDs. With CHB-MIT this
+    gives 22 subject groups because chb01 and chb21 are recordings from the same
+    individual. The resulting case counts can be 14/4/4, 15/4/4, 14/5/4, or
+    14/4/5 depending on where the paired group lands, but there is no
+    cross-partition subject overlap.
+    """
+    if subject_groups is None:
+        subject_groups = SUBJECT_GROUPS
+
+    rng = random.Random(seed)
+    shuffled = [tuple(group) for group in subject_groups]
+    rng.shuffle(shuffled)
+
+    test_groups = shuffled[:n_test]
+    val_groups = shuffled[n_test:n_test + n_val]
+    train_groups = shuffled[n_test + n_val:]
+
+    def flatten(groups):
+        return [case for group in groups for case in group]
+
+    return flatten(train_groups), flatten(val_groups), flatten(test_groups)
+
+
+#
+# Dataset
+#
 class SeizureDataset(Dataset):
     def __init__(self, patient_list, data_dir=DATA_DIR):
         self.data_arrays  = []
@@ -83,7 +131,7 @@ class SeizureDataset(Dataset):
             self.sample_map = np.concatenate(sample_map_list, axis=0)
             self.labels     = np.concatenate(labels_list,     axis=0)
         else:
-            print("  [warning] no valid patients found — empty dataset")
+            print("  [warning] no valid patients found - empty dataset")
             self.sample_map = np.empty((0, 2), dtype=np.int32)
             self.labels     = np.empty(0,      dtype=np.int8)
 
@@ -114,10 +162,9 @@ class SeizureDataset(Dataset):
         }
 
 
-# ---------------------------------------------------------------------------
+#
 # Sampler
-# ---------------------------------------------------------------------------
-
+#
 def _make_weighted_sampler(labels):
     n_inter = int((labels == 0).sum())
     n_pre   = int((labels == 1).sum())
@@ -131,10 +178,9 @@ def _make_weighted_sampler(labels):
     )
 
 
-# ---------------------------------------------------------------------------
+#
 # DataLoader factory
-# ---------------------------------------------------------------------------
-
+#
 def get_cross_patient_dataloaders(
         data_dir, train_pts, val_pts, test_pts,
         batch_size=128, seed=42):

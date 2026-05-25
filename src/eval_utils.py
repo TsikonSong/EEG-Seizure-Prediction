@@ -1,12 +1,39 @@
+"""
+eval_utils.py - Shared evaluation functions for seizure prediction benchmarking.
+
+Changes from original per-notebook evaluate():
+  1. Youden-optimal threshold (selected on val set, applied to test set)
+  2. Precision (PPV) added
+  3. Event-level sensitivity added
+  4. Consistent FAR stride_s=300 (interictal sampling interval)
+
+Usage in training notebooks:
+    from eval_utils import find_youden_threshold, evaluate_at_threshold, false_alarm_rate
+"""
+
 import numpy as np
 from sklearn.metrics import roc_auc_score, roc_curve, f1_score, confusion_matrix, precision_score
 
 
-# ---------------------------------------------------------------------------
+#
 # Threshold selection
-# ---------------------------------------------------------------------------
-
+#
 def find_youden_threshold(y_true, y_prob):
+    """
+    Find the classification threshold that maximises the Youden index
+    (J = sensitivity + specificity - 1) on a given dataset.
+
+    Parameters
+    ----------
+    y_true : array-like, shape (n,)
+        Binary labels (0 = interictal, 1 = preictal).
+    y_prob : array-like, shape (n,)
+        Predicted probabilities for the positive class.
+
+    Returns
+    -------
+    best_threshold : float
+    """
     if roc_auc_score(y_true, y_prob) < 0.5:
         return 0.5  # classifier worse than random; fall back to neutral threshold
     fpr, tpr, thresholds = roc_curve(y_true, y_prob)
@@ -15,11 +42,23 @@ def find_youden_threshold(y_true, y_prob):
     return float(thresholds[best_idx])
 
 
-# ---------------------------------------------------------------------------
+#
 # Main evaluation (works with raw probabilities, not models)
-# ---------------------------------------------------------------------------
-
+#
 def evaluate_at_threshold(y_true, y_prob, threshold):
+    """
+    Compute all discrimination metrics at a given threshold.
+
+    Parameters
+    ----------
+    y_true : ndarray, shape (n,)
+    y_prob : ndarray, shape (n,)
+    threshold : float
+
+    Returns
+    -------
+    dict with keys: auc, sensitivity, specificity, precision, f1
+    """
     y_true = np.asarray(y_true)
     y_prob = np.asarray(y_prob)
     y_pred = (y_prob >= threshold).astype(int)
@@ -42,12 +81,29 @@ def evaluate_at_threshold(y_true, y_prob, threshold):
     }
 
 
-# ---------------------------------------------------------------------------
+#
 # False Alarm Rate
-# ---------------------------------------------------------------------------
-
+#
 def false_alarm_rate(y_true, y_prob, threshold, stride_s=300):
-    """False alarms per hour; stride_s=300 matches 5-min interictal sampling."""
+    """
+    FAR (false alarms per hour) on interictal windows.
+
+    stride_s = 300 because interictal windows are sampled every 5 minutes
+    in the preprocessing pipeline (INTER_ICTAL_STEP = 5 * 60 * 256).
+    Each interictal window therefore represents 300 seconds of monitoring.
+
+    Parameters
+    ----------
+    y_true : ndarray, shape (n,)
+    y_prob : ndarray, shape (n,)
+    threshold : float
+    stride_s : int
+        Seconds of recording represented by each interictal window.
+
+    Returns
+    -------
+    far : float   (false alarms per hour)
+    """
     y_true = np.asarray(y_true)
     y_prob = np.asarray(y_prob)
     y_pred = (y_prob >= threshold).astype(int)
@@ -63,11 +119,32 @@ def false_alarm_rate(y_true, y_prob, threshold, stride_s=300):
     return float(n_false / interictal_hours)
 
 
-# ---------------------------------------------------------------------------
+#
 # Event-level sensitivity
-# ---------------------------------------------------------------------------
-
+#
 def event_level_sensitivity(y_true, y_prob, threshold):
+    """
+    Event-level sensitivity: fraction of seizure events successfully predicted.
+
+    A seizure event is defined as a contiguous run of preictal labels (y=1)
+    in the sequential test data. An event is 'successfully predicted' if
+    at least one window within that run exceeds the threshold.
+
+    This approximation works because the preprocessed data stores windows
+    in temporal order, and different seizure events are separated by
+    interictal (y=0) or discarded (y=-1, excluded) windows.
+
+    Parameters
+    ----------
+    y_true : ndarray, shape (n,)
+    y_prob : ndarray, shape (n,)
+    threshold : float
+
+    Returns
+    -------
+    event_sen : float
+    n_events  : int   (total seizure events in test set)
+    """
     y_true = np.asarray(y_true)
     y_prob = np.asarray(y_prob)
     y_pred = (y_prob >= threshold).astype(int)
@@ -92,11 +169,35 @@ def event_level_sensitivity(y_true, y_prob, threshold):
     return float(n_predicted / n_events), n_events
 
 
-# ---------------------------------------------------------------------------
+#
 # Per-patient evaluation
-# ---------------------------------------------------------------------------
-
+#
 def per_patient_evaluate(y_true, y_prob, patient_ids, threshold, stride_s=300):
+    """
+    Compute AUC, Sensitivity, and FAR independently for each patient.
+
+    Parameters
+    ----------
+    y_true       : ndarray, shape (n,)
+    y_prob       : ndarray, shape (n,)
+    patient_ids  : array-like of str, shape (n,) - patient name per sample.
+                   Obtain via ``test_loader.dataset.patient_ids``.
+    threshold    : float
+    stride_s     : int
+
+    Returns
+    -------
+    per_pt : dict[str, dict]
+        Keys are patient names; values have keys: auc, sensitivity, far.
+        Metrics are NaN when undefined (e.g. only one class present).
+    summary : dict
+        mean and std across patients for each metric (NaN patients excluded).
+
+    Example
+    -------
+    patient_ids = test_loader.dataset.patient_ids
+    per_pt, summary = per_patient_evaluate(test_labels, test_probs, patient_ids, threshold)
+    """
     y_true      = np.asarray(y_true)
     y_prob      = np.asarray(y_prob)
     patient_ids = np.asarray(patient_ids)
@@ -107,7 +208,7 @@ def per_patient_evaluate(y_true, y_prob, patient_ids, threshold, stride_s=300):
         yt, yp = y_true[mask], y_prob[mask]
         y_pred = (yp >= threshold).astype(int)
 
-        # AUC — requires both classes present
+        # AUC - requires both classes present
         if len(np.unique(yt)) < 2:
             auc = float('nan')
         else:
@@ -141,11 +242,18 @@ def per_patient_evaluate(y_true, y_prob, patient_ids, threshold, stride_s=300):
     return per_pt, summary
 
 
-# ---------------------------------------------------------------------------
+#
 # Combined evaluation (convenience wrapper)
-# ---------------------------------------------------------------------------
-
+#
 def full_evaluate(y_true, y_prob, threshold, stride_s=300):
+    """
+    Compute all metrics at a given threshold.
+
+    Returns
+    -------
+    dict with keys: auc, sensitivity, specificity, precision, f1,
+                    far, event_sensitivity, n_events, threshold
+    """
     metrics = evaluate_at_threshold(y_true, y_prob, threshold)
     metrics['far'] = false_alarm_rate(y_true, y_prob, threshold, stride_s)
 

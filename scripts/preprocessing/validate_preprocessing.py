@@ -113,7 +113,7 @@ def validate_patient(pid):
     info['ratio'] = round(n_inter / n_pre, 2) if n_pre > 0 else 'inf'
 
     if n_pre == 0:
-        errors.append("ZERO preictal windows — seizure data lost in preprocessing")
+        errors.append("ZERO preictal windows - seizure data lost in preprocessing")
 
     gt_seizures = GROUND_TRUTH.get(pid, 0)
     runs = find_runs(y, value=1)
@@ -138,7 +138,7 @@ def validate_patient(pid):
             )
         else:
             info['note_lost_events'] = (
-                f"{lost} seizure(s) lost — normal if close-together seizures "
+                f"{lost} seizure(s) lost - normal if close-together seizures "
                 f"overlap with 4h postictal gap or first seizure lacks 30min history"
             )
 
@@ -153,7 +153,7 @@ def validate_patient(pid):
         if length < 5:
             warnings.append(
                 f"Preictal run #{i+1} at index {start} has only {length} windows "
-                f"(very short — likely truncated event)"
+                f"(very short - likely truncated event)"
             )
 
     # Total preictal sanity: should be roughly n_events * ~100-149
@@ -173,7 +173,7 @@ def validate_patient(pid):
     if np.isinf(X_sample).any():
         errors.append("Inf detected in signal data!")
 
-    # Per-channel normalization check (should be mean≈0, std≈1)
+    # Per-channel normalization check (should be mean~0, std~1)
     ch_means = X_sample.mean(axis=-1)   # (200, 18)
     ch_stds  = X_sample.std(axis=-1)    # (200, 18)
 
@@ -184,11 +184,11 @@ def validate_patient(pid):
 
     if abs(grand_mean) > 0.1:
         warnings.append(
-            f"Grand mean = {grand_mean:.4f}, expected ≈0 after z-score normalization"
+            f"Grand mean = {grand_mean:.4f}, expected ~0 after z-score normalization"
         )
     if abs(grand_std - 1.0) > 0.15:
         warnings.append(
-            f"Grand std = {grand_std:.4f}, expected ≈1.0 after z-score normalization"
+            f"Grand std = {grand_std:.4f}, expected ~1.0 after z-score normalization"
         )
 
     # Flatline check: channels with std < 1e-6 in the normalized signal
@@ -205,13 +205,13 @@ def validate_patient(pid):
             f"near-flat channels (may indicate flatline leakage)"
         )
 
-    # Amplitude range (after z-score, typical range is roughly ±5-10)
+    # Amplitude range (after z-score, typical range is roughly +/-5-10)
     amp_min = float(X_sample.min())
     amp_max = float(X_sample.max())
     info['amplitude_range'] = f"[{amp_min:.1f}, {amp_max:.1f}]"
     if amp_max > 50 or amp_min < -50:
         warnings.append(
-            f"Extreme amplitude [{amp_min:.1f}, {amp_max:.1f}] — "
+            f"Extreme amplitude [{amp_min:.1f}, {amp_max:.1f}] - "
             f"possible artifact or normalization issue"
         )
 
@@ -229,7 +229,7 @@ def validate_patient(pid):
             if gap < 2 and gap > 0:
                 warnings.append(
                     f"Preictal runs #{i} and #{i+1} separated by only {gap} "
-                    f"interictal window(s) — possible timeline issue"
+                    f"interictal window(s) - possible timeline issue"
                 )
 
     status = 'PASS'
@@ -288,14 +288,14 @@ def cross_patient_checks(all_reports):
         avg = round(n_pre / n_events, 1) if n_events > 0 else 0
         flag = ""
         if n_events < gt * 0.5:
-            flag = " ⚠️ <50% events recovered"
+            flag = " [WARN]️ <50% events recovered"
         print(f"    {pid}: {n_inter:>5} inter + {n_pre:>5} pre "
               f"({n_events}/{gt} events, ~{avg} win/evt){flag}")
 
     # Sanity: no patient should have 0 windows
     empty = [p for p, s in patient_sizes.items() if s == 0]
     if empty:
-        print(f"\n  ⚠️ EMPTY PATIENTS: {empty}")
+        print(f"\n  [WARN]️ EMPTY PATIENTS: {empty}")
 
 
 
@@ -344,22 +344,22 @@ def main():
         status, report = validate_patient(pid)
         all_reports[pid] = (status, report)
 
-        icon = {'PASS': '✅', 'WARN': '⚠️', 'FAIL': '❌'}[status]
+        icon = {'PASS': 'PASS', 'WARN': 'WARN', 'FAIL': 'FAIL'}[status]
         info = report.get('info', {})
 
         print(f"\n  {icon} {pid} [{status}]  "
-              f"windows={info.get('n_windows', '?')}  "
-              f"pre={info.get('n_preictal', '?')}  "
-              f"inter={info.get('n_interictal', '?')}  "
-              f"events={info.get('detected_events', '?')}/{info.get('gt_seizures', '?')}")
+              f"windows={info.get('n_windows', '')}  "
+              f"pre={info.get('n_preictal', '')}  "
+              f"inter={info.get('n_interictal', '')}  "
+              f"events={info.get('detected_events', '')}/{info.get('gt_seizures', '')}")
 
         for e in report.get('errors', []):
-            print(f"      ❌ {e}")
+            print(f"      ERROR: {e}")
         for w in report.get('warnings', []):
-            print(f"      ⚠️  {w}")
+            print(f"      WARN: {w}")
         note = info.get('note_lost_events')
         if note:
-            print(f"      ℹ️  {note}")
+            print(f"      NOTE: {note}")
 
         if status == 'PASS':
             n_pass += 1
@@ -377,11 +377,11 @@ def main():
     print("=" * 70)
 
     if n_fail > 0:
-        print("  ❌ PREPROCESSING HAS ERRORS — fix before training!")
+        print("  ❌ PREPROCESSING HAS ERRORS - fix before training!")
     elif n_warn > 0:
-        print("  ⚠️  Warnings found — review above, but likely OK to proceed.")
+        print("  [WARN]️  Warnings found - review above, but likely OK to proceed.")
     else:
-        print("  ✅ All checks passed — safe to train!")
+        print("  ✅ All checks passed - safe to train!")
 
     # Save report
     report_path = os.path.join(DATA_DIR, 'validation_report.json')

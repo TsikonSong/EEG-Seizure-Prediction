@@ -5,10 +5,9 @@ N_CHANNELS = 18
 WIN        = 20 * 256   # 5120
 
 
-# ---------------------------------------------------------------------------
+#
 # 1D-CNN
-# ---------------------------------------------------------------------------
-
+#
 class MultiScaleBlock(nn.Module):
     """Parallel 1-D convolutions with three kernel sizes, concatenated."""
     def __init__(self, in_ch, out_ch, kernels=(3, 5, 7)):
@@ -54,10 +53,9 @@ class CNN1D(nn.Module):
         return self.classifier(self.encoder(x))
 
 
-# ---------------------------------------------------------------------------
+#
 # EEGNet (Lawhern et al. 2018)
-# ---------------------------------------------------------------------------
-
+#
 class EEGNet(nn.Module):
     """EEGNet. Input: (B, 18, 5120), Output: (B, 2)"""
     def __init__(self,
@@ -106,10 +104,9 @@ class EEGNet(nn.Module):
         return self.classifier(x)
 
 
-# ---------------------------------------------------------------------------
+#
 # TCN (Bai et al. 2018)
-# ---------------------------------------------------------------------------
-
+#
 class TemporalBlock(nn.Module):
     """Single TCN residual block with dilated causal convolutions."""
     def __init__(self, in_ch, out_ch, kernel_size, dilation, dropout=0.2):
@@ -170,10 +167,9 @@ class TCN(nn.Module):
         return self.classifier(self.pool(self.tcn(x)))
 
 
-# ---------------------------------------------------------------------------
+#
 # EEG-Conformer (Song et al. 2023)
-# ---------------------------------------------------------------------------
-
+#
 class PatchEmbedding(nn.Module):
     """(B, C, T) → (B, S, D) token sequence via temporal+spatial conv + pooling."""
     def __init__(self, n_channels=N_CHANNELS, emb_size=40, kern_t=15,
