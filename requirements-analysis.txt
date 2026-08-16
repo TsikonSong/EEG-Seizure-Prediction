@@ -1,0 +1,4 @@
+# Lightweight environment for source-data verification and continuous integration.
+numpy>=2.2,<3
+pandas>=2.2,<3
+scikit-learn>=1.7,<2

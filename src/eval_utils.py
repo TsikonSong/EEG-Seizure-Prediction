@@ -5,10 +5,10 @@ Changes from original per-notebook evaluate():
   1. Youden-optimal threshold (selected on val set, applied to test set)
   2. Precision (PPV) added
   3. Event-level sensitivity added
-  4. Consistent FAR stride_s=300 (interictal sampling interval)
+  4. Consistent FPD_300 cadence adjustment (interictal sampling interval)
 
 Usage in training notebooks:
-    from eval_utils import find_youden_threshold, evaluate_at_threshold, false_alarm_rate
+    from eval_utils import find_youden_threshold, evaluate_at_threshold, fpd_per_hour
 """
 
 import numpy as np
@@ -82,15 +82,19 @@ def evaluate_at_threshold(y_true, y_prob, threshold):
 
 
 #
-# False Alarm Rate
+# False-positive window-decision rate
 #
-def false_alarm_rate(y_true, y_prob, threshold, stride_s=300):
+def fpd_per_hour(y_true, y_prob, threshold, stride_s=300):
     """
-    FAR (false alarms per hour) on interictal windows.
+    Cadence-adjusted false-positive window decisions per nominal hour.
 
     stride_s = 300 because interictal windows are sampled every 5 minutes
     in the preprocessing pipeline (INTER_ICTAL_STEP = 5 * 60 * 256).
     Each interictal window therefore represents 300 seconds of monitoring.
+
+    This is not an alarm rate: no temporal smoothing, merging, refractory
+    period, or time-in-warning policy is applied. In the manuscript this
+    sampled-window quantity is denoted FPD_300/h.
 
     Parameters
     ----------
@@ -102,7 +106,7 @@ def false_alarm_rate(y_true, y_prob, threshold, stride_s=300):
 
     Returns
     -------
-    far : float   (false alarms per hour)
+    fpd : float   (false-positive window decisions per nominal hour)
     """
     y_true = np.asarray(y_true)
     y_prob = np.asarray(y_prob)
@@ -117,6 +121,15 @@ def false_alarm_rate(y_true, y_prob, threshold, stride_s=300):
 
     interictal_hours = (n_inter * stride_s) / 3600
     return float(n_false / interictal_hours)
+
+
+def false_alarm_rate(y_true, y_prob, threshold, stride_s=300):
+    """Backward-compatible alias for :func:`fpd_per_hour`.
+
+    Earlier scripts used ``far`` as the field name. The value is a sampled
+    false-positive window-decision rate, not a continuous-stream alarm rate.
+    """
+    return fpd_per_hour(y_true, y_prob, threshold, stride_s)
 
 
 #
@@ -220,7 +233,7 @@ def per_patient_evaluate(y_true, y_prob, patient_ids, threshold, stride_s=300):
         sen = tp / (tp + fn) if (tp + fn) > 0 else float('nan')
 
         # FAR
-        far = false_alarm_rate(yt, yp, threshold, stride_s)
+        far = fpd_per_hour(yt, yp, threshold, stride_s)
 
         per_pt[pid] = {
             'auc':         auc,
@@ -255,7 +268,8 @@ def full_evaluate(y_true, y_prob, threshold, stride_s=300):
                     far, event_sensitivity, n_events, threshold
     """
     metrics = evaluate_at_threshold(y_true, y_prob, threshold)
-    metrics['far'] = false_alarm_rate(y_true, y_prob, threshold, stride_s)
+    metrics['far'] = fpd_per_hour(y_true, y_prob, threshold, stride_s)
+    metrics['fpd_per_hour'] = metrics['far']
 
     evt_sen, n_evt = event_level_sensitivity(y_true, y_prob, threshold)
     metrics['event_sensitivity'] = evt_sen

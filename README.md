@@ -1,85 +1,163 @@
-# Seizure prediction benchmark
+# Evaluation design shapes reported performance in EEG seizure prediction
 
-This repository contains the code used for a patient-independent seizure prediction benchmark on CHB-MIT. It also includes the Siena preparation scripts used for the external-data checks.
+This repository contains the preprocessing, model, and analysis code for a
+benchmark comparing exact-sample overlap, within-case evaluation, and
+cold-start testing on unseen subject groups. It also contains the PSD+LDA
+external-transfer analysis from CHB-MIT to Siena.
 
-The data are not included. The scripts expect the local data and result folders listed below unless you edit the path constants.
+The repository is research software, not a clinical seizure-warning system.
+`FPD_300/h` denotes cadence-adjusted false-positive window decisions per
+nominal hour. It is not a continuous-stream alarm rate because no smoothing,
+merging, refractory period, or time-in-warning policy is applied.
 
-## Data locations
+## Reproducibility record
 
-The current scripts use these paths:
+The publication-facing analysis uses 20 fixed splits of 22 subject groups.
+CHB-MIT case identifiers `chb01` and `chb21` correspond to one individual and
+are always assigned to the same train, validation, or test partition.
 
-```text
-D:\chbmit_data
-D:\chbmit_preprocessed
-D:\Siena\siena-scalp-eeg-1.0.0
-D:\siena_preprocessed
-D:\seizure_results
+Small audit artifacts are included in `results/`:
+
+- the exact CSV tables used by the LaTeX figures and numerical summaries;
+- 100 compressed held-out prediction archives (five models x 20 seeds);
+- no raw EEG, private clinical information, or model checkpoints.
+
+The following CPU-only check validates every split, verifies that each
+prediction archive contains the expected held-out cases, regenerates the
+low-FPD table, and matches it to the checked-in manuscript source data:
+
+```bash
+python -m pip install -r requirements-analysis.txt
+python -m unittest discover -s tests -v
 ```
 
-For a new machine, either recreate those folders or update the constants near the top of the relevant scripts.
+On a typical laptop this verification takes under one minute. The same checks
+run automatically in GitHub Actions.
 
-## Setup
+## Recreate the low-FPD source table
 
-The experiments were run with Python 3.10. A conda environment is the easiest way to keep the EEG and PyTorch dependencies stable.
+This command needs only the small prediction archives already in the
+repository; it does not require raw EEG or model retraining:
 
-```powershell
-conda create -n seizure_prediction python=3.10
-conda activate seizure_prediction
-pip install -r requirements.txt
+```bash
+python run.py scripts/analysis/work_J_far_constrained_sensitivity.py \
+  --fpd-ceiling 0.2 \
+  --source-data-out outputs/strict_low_far_per_seed.csv
 ```
 
-Install the PyTorch build that matches your GPU and CUDA version if the default wheel is not suitable.
+The command selects thresholds post hoc on each strict held-out test score
+vector. Its output is a descriptive score-separation diagnostic and must not be
+interpreted as a locked deployment threshold.
 
-## Running scripts
+## Software environment
 
-Use `run.py` from the repository root. It adds `src` and the script folders to `PYTHONPATH`, so the old flat-file imports still work.
+The experiments used Python 3.10. Create the reference environment with either
+conda or venv:
 
-```powershell
-cd D:\seizure_prediction_benchmark_github
-python run.py scripts\siena\work_K_siena_feasibility.py
-python run.py scripts\siena\work_L_siena_external_psd_lda.py
-python run.py scripts\analysis\work_J_far_constrained_sensitivity.py --far-ceiling 0.2
+```bash
+conda env create -f environment.yml
+conda activate eeg-seizure-benchmark
 ```
 
-Long GPU jobs can also be started with the PowerShell runners under `runners\windows`.
+or
+
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Install a PyTorch build compatible with the local CUDA driver when using a GPU.
+Strict training defaults to deterministic PyTorch operations where supported;
+cross-platform floating-point results can still differ at the final decimal
+place. The checked-in prediction arrays and source tables are the fixed audit
+record.
+
+## Public datasets
+
+Raw data are not redistributed here. Download the original releases from
+PhysioNet:
+
+- [CHB-MIT Scalp EEG Database v1.0.0](https://physionet.org/content/chbmit/1.0.0/), DOI [10.13026/C2K01R](https://doi.org/10.13026/C2K01R)
+- [Siena Scalp EEG Database v1.0.0](https://physionet.org/content/siena-scalp-eeg/1.0.0/), DOI [10.13026/5d4a-j060](https://doi.org/10.13026/5d4a-j060)
+
+CHB-MIT is approximately 42.6 GB uncompressed. See `docs/data_notes.md` for the
+window definition, expected folders, and output layout.
+
+## End-to-end strict subject-group workflow
+
+All core scripts accept paths at the command line. Examples below use generic
+local folders rather than author-specific drive paths.
+
+1. Preprocess CHB-MIT:
+
+   ```bash
+   python run.py scripts/preprocessing/preprocess_chbmit.py \
+     --data-dir /path/to/chbmit-1.0.0 \
+     --out-dir /path/to/chbmit_preprocessed \
+     --temp-dir /path/to/chbmit_temp
+   ```
+
+2. Train the five strict subject-grouped models and export held-out prediction
+   archives:
+
+   ```bash
+   python run.py scripts/analysis/work_H_subject_level_pi.py \
+     --models all \
+     --data-dir /path/to/chbmit_preprocessed \
+     --results-root /path/to/seizure_results
+   ```
+
+   Outputs are written beneath
+   `/path/to/seizure_results/subject_level_pi/`, including per-seed JSON files,
+   model checkpoints, the exact split audit, and compact prediction archives.
+   Full deep-model training is GPU-intensive and can take hours depending on
+   hardware. Jobs can be resumed because completed seeds are detected.
+
+3. Recreate the low-FPD table from newly generated predictions:
+
+   ```bash
+   python run.py scripts/analysis/work_J_far_constrained_sensitivity.py \
+     --predictions-root /path/to/seizure_results/subject_level_pi/predictions \
+     --out-dir /path/to/seizure_results/analysis_outputs/low_fpd
+   ```
+
+4. Preprocess Siena and rerun the strict PSD+LDA transfer:
+
+   ```bash
+   python run.py scripts/siena/preprocess_siena.py \
+     --data-dir /path/to/siena-scalp-eeg-1.0.0 \
+     --out-dir /path/to/siena_preprocessed \
+     --temp-dir /path/to/siena_temp
+
+   python run.py scripts/siena/work_L_siena_external_psd_lda.py \
+     --chb-dir /path/to/chbmit_preprocessed \
+     --siena-dir /path/to/siena_preprocessed \
+     --out-dir /path/to/seizure_results/siena_strict_psd_lda
+   ```
+
+The Siena script fits PSD+LDA only on the corresponding CHB-MIT training
+groups, selects thresholds only on CHB-MIT validation groups, and applies the
+model unchanged to the 13 eligible Siena participants.
 
 ## Repository layout
 
 ```text
-src\                     shared data loaders, metrics, and model definitions
-scripts\preprocessing\   CHB-MIT preprocessing and validation
-scripts\training\        sensitivity and wideband training scripts
-scripts\analysis\        manuscript analysis scripts
-scripts\siena\           Siena feasibility, preprocessing, and transfer probe
-notebooks\training\      main model notebooks
-notebooks\leaky\         random-window baseline notebooks
-notebooks\analysis\      interpretability and statistical notebooks
-runners\windows\         Windows runners for long jobs
-docs\                    script map and data notes
+src/                     split logic, data loaders, metrics, model definitions
+scripts/preprocessing/   CHB-MIT preprocessing and validation
+scripts/training/        supporting training and sensitivity scripts
+scripts/analysis/        benchmark and source-data analyses
+scripts/siena/           Siena preprocessing and PSD+LDA transfer
+results/                 curated prediction arrays and manuscript source data
+tests/                   split and artifact reproducibility checks
+notebooks/               interactive records of earlier analyses
+runners/windows/         optional Windows runners for long jobs
+docs/                    data and script documentation
 ```
 
-## Main analysis groups
+## Citation and license
 
-The analysis scripts are in `scripts/analysis`:
-
-- `work_A_sens_spec_bimodality.py`
-- `work_B_wideband_analysis.py`
-- `work_C_signal_visualization.py`
-- `work_D_case_series.py`
-- `work_E_permutation_null.py`
-- `work_F_exclude_chb19_sensitivity.py`
-- `work_G_ps_leakage_audit.py`
-- `work_H_subject_level_pi.py`
-- `work_I_far_silencing_simulation.py`
-- `work_J_far_constrained_sensitivity.py`
-
-The Siena scripts are in `scripts/siena`:
-
-- `work_K_siena_feasibility.py`
-- `work_L_siena_external_psd_lda.py`
-
-The notebooks record the interactive runs. The reusable code lives in `src` and `scripts`.
-
-## Data policy
-
-Do not commit EDF files, NumPy window arrays, model checkpoints, or result folders. The `.gitignore` file excludes the usual large local artifacts.
+Citation metadata are provided in `CITATION.cff`. The code is released under
+the MIT License. The original datasets remain governed by their respective
+PhysioNet licenses and citation requirements.

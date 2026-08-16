@@ -1,95 +1,22 @@
 import os
-import random
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+
+from splits import (
+    SEEDS,
+    SUBJECT_GROUPS,
+    VALID_PATIENTS,
+    make_patient_splits,
+    make_subject_splits,
+)
 
 #
 # Constants
 #
 WIN = 20 * 256  # 5120 samples per 20-second window
 
-VALID_PATIENTS = [
-    'chb01', 'chb02', 'chb03', 'chb04', 'chb05', 'chb06', 'chb07', 'chb08',
-    'chb09', 'chb10', 'chb11', 'chb12', 'chb13', 'chb14', 'chb15', 'chb16',
-    'chb17', 'chb18', 'chb19', 'chb20', 'chb21', 'chb22', 'chb23',
-]  # 23 cases (chb24 excluded); chb01/chb21 are the same subject.
-
-SUBJECT_GROUPS = [
-    ('chb01', 'chb21'),
-    ('chb02',),
-    ('chb03',),
-    ('chb04',),
-    ('chb05',),
-    ('chb06',),
-    ('chb07',),
-    ('chb08',),
-    ('chb09',),
-    ('chb10',),
-    ('chb11',),
-    ('chb12',),
-    ('chb13',),
-    ('chb14',),
-    ('chb15',),
-    ('chb16',),
-    ('chb17',),
-    ('chb18',),
-    ('chb19',),
-    ('chb20',),
-    ('chb22',),
-    ('chb23',),
-]  # 22 unique subjects / subject groups across 23 cases.
-
-SEEDS = [42, 123, 456, 789, 1024,
-         2025, 3141, 4096, 5555, 6174,
-         7077, 8192, 9001, 9999, 11111,
-         12345, 13579, 14142, 15926, 16384]
-
-_N_VAL  = 4
-_N_TEST = 4
-
-DATA_DIR = r'D:\chbmit_preprocessed'
-
-
-#
-# Patient split
-#
-def make_patient_splits(seed, patients=None):
-    if patients is None:
-        patients = VALID_PATIENTS
-    rng = random.Random(seed)
-    shuffled = list(patients)
-    rng.shuffle(shuffled)
-    test_pts  = shuffled[:_N_TEST]
-    val_pts   = shuffled[_N_TEST:_N_TEST + _N_VAL]
-    train_pts = shuffled[_N_TEST + _N_VAL:]
-    return train_pts, val_pts, test_pts
-
-
-def make_subject_splits(seed, subject_groups=None, n_val=4, n_test=4):
-    """Subject-level split with chb01/chb21 tied to the same partition.
-
-    The split operates on subject groups rather than case IDs. With CHB-MIT this
-    gives 22 subject groups because chb01 and chb21 are recordings from the same
-    individual. The resulting case counts can be 14/4/4, 15/4/4, 14/5/4, or
-    14/4/5 depending on where the paired group lands, but there is no
-    cross-partition subject overlap.
-    """
-    if subject_groups is None:
-        subject_groups = SUBJECT_GROUPS
-
-    rng = random.Random(seed)
-    shuffled = [tuple(group) for group in subject_groups]
-    rng.shuffle(shuffled)
-
-    test_groups = shuffled[:n_test]
-    val_groups = shuffled[n_test:n_test + n_val]
-    train_groups = shuffled[n_test + n_val:]
-
-    def flatten(groups):
-        return [case for group in groups for case in group]
-
-    return flatten(train_groups), flatten(val_groups), flatten(test_groups)
+DATA_DIR = os.environ.get("CHBMIT_PREPROCESSED_DIR", r"D:\chbmit_preprocessed")
 
 
 #

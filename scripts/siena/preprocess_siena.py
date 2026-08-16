@@ -1,6 +1,7 @@
 import argparse
 import gc
 import json
+import os
 import shutil
 import warnings
 from pathlib import Path
@@ -27,8 +28,10 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 mne.set_log_level("ERROR")
 
-DEFAULT_OUT_DIR = Path(r"D:\siena_preprocessed")
-DEFAULT_TEMP_DIR = Path(r"D:\siena_temp")
+DEFAULT_OUT_DIR = Path(
+    os.environ.get("SIENA_PREPROCESSED_DIR", r"D:\siena_preprocessed")
+)
+DEFAULT_TEMP_DIR = Path(os.environ.get("SIENA_TEMP_DIR", r"D:\siena_temp"))
 FS = 256
 WIN = WIN_S * FS
 PREICTAL_STEP = PREICTAL_STEP_S * FS

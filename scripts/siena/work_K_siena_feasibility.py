@@ -9,11 +9,16 @@ import numpy as np
 
 
 SIENA_CANDIDATES = [
+    Path(os.environ["SIENA_RAW_DIR"]) if "SIENA_RAW_DIR" in os.environ else None,
     Path(r"D:\Siena\siena-scalp-eeg-1.0.0"),
     Path(r"D:\eeg_datasets\siena-scalp-eeg-1.0.0"),
 ]
-SIENA_DIR = next((p for p in SIENA_CANDIDATES if (p / "RECORDS").exists()), SIENA_CANDIDATES[0])
-OUT_DIR = Path(r"D:\seizure_results\siena_pilot")
+SIENA_CANDIDATES = [path for path in SIENA_CANDIDATES if path is not None]
+SIENA_DIR = next(
+    (path for path in SIENA_CANDIDATES if (path / "RECORDS").exists()),
+    SIENA_CANDIDATES[0],
+)
+OUT_DIR = Path(os.environ.get("SEIZURE_RESULTS_DIR", r"D:\seizure_results")) / "siena_pilot"
 
 TARGET_DERIVATIONS = [
     ("FP1", "F7"),

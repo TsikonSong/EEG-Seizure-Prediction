@@ -3,8 +3,10 @@ $ErrorActionPreference = "Continue"
 $Python = if ($env:SEIZURE_PYTHON) { $env:SEIZURE_PYTHON } else { "python" }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $AnalysisScripts = Join-Path $RepoRoot "scripts\analysis"
-$AnalysisRoot = "D:\seizure_results\analysis_outputs"
-$RunRoot = Join-Path $AnalysisRoot "work_K_submission_blocker_runs"
+$ResultsRoot = if ($env:SEIZURE_RESULTS_DIR) { $env:SEIZURE_RESULTS_DIR } else { "D:\seizure_results" }
+$SubjectRoot = Join-Path $ResultsRoot "subject_level_pi"
+$AnalysisRoot = Join-Path $ResultsRoot "analysis_outputs"
+$RunRoot = Join-Path $AnalysisRoot "sensitivity_check_runs"
 $ControllerLog = Join-Path $RunRoot "controller.log"
 $env:PYTHONPATH = @(
     (Join-Path $RepoRoot "src"),
@@ -46,7 +48,7 @@ function Invoke-LoggedCommand {
 }
 
 New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
-Write-RunLog "Submission-blocker experiment controller started."
+Write-RunLog "Sensitivity-check experiment controller started."
 
 $psPlan = @(
     @{ Model = "1dcnn"; OutDir = Join-Path $AnalysisRoot "work_G_ps_leakage_1dcnn"; Log = Join-Path $RunRoot "work_G_ps_leakage_1dcnn.log" },
@@ -65,14 +67,15 @@ foreach ($item in $psPlan) {
     } | Out-Null
 }
 
-$farOut = Join-Path $AnalysisRoot "work_J_far_constrained_sensitivity\far_constrained_summary.csv"
-if (Test-Path -LiteralPath $farOut) {
-    Write-RunLog "FAR-constrained sensitivity summary already exists; skipping."
+$lowFpdOut = Join-Path $AnalysisRoot "work_J_low_fpd"
+$lowFpdSummary = Join-Path $lowFpdOut "strict_low_fpd_summary.csv"
+if (Test-Path -LiteralPath $lowFpdSummary) {
+    Write-RunLog "Low-FPD sensitivity summary already exists; skipping."
 }
 else {
-    Invoke-LoggedCommand -Name "work_J_far_constrained_sensitivity" -LogPath (Join-Path $RunRoot "work_J_far_constrained_sensitivity.log") -Command {
-        & $Python -u (Join-Path $AnalysisScripts "work_J_far_constrained_sensitivity.py") --far-ceiling 0.2
+    Invoke-LoggedCommand -Name "work_J_low_fpd" -LogPath (Join-Path $RunRoot "work_J_low_fpd.log") -Command {
+        & $Python -u (Join-Path $AnalysisScripts "work_J_far_constrained_sensitivity.py") --fpd-ceiling 0.2 --predictions-root (Join-Path $SubjectRoot "predictions") --out-dir $lowFpdOut
     } | Out-Null
 }
 
-Write-RunLog "Submission-blocker experiment controller completed queued work."
+Write-RunLog "Sensitivity-check experiment controller completed queued work."

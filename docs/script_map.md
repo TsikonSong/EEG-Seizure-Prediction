@@ -2,9 +2,15 @@
 
 ## Shared modules
 
-`src\data_utils.py` defines the CHB-MIT case list, patient splits, PyTorch datasets, and dataloaders.
+`src/splits.py` defines the fixed seeds, legacy case-ID splits, and strict
+22-subject-group splits without requiring PyTorch.
 
-`src\eval_utils.py` contains threshold selection, AUC, sensitivity, specificity, precision, false-alarm rate, and event-level sensitivity.
+`src/data_utils.py` defines the PyTorch datasets and dataloaders and re-exports
+the split helpers for compatibility with the original notebooks.
+
+`src/eval_utils.py` contains threshold selection, AUC, sensitivity, specificity,
+precision, cadence-adjusted FPD_300, and event-level sensitivity. The legacy
+`false_alarm_rate` name is retained only as a compatibility alias.
 
 `src\models.py` contains the 1D-CNN, EEGNet, TCN, and EEG-Conformer definitions used by the notebooks and scripts.
 
@@ -32,11 +38,15 @@
 
 `scripts\analysis\work_G_ps_leakage_audit.py` compares chronological and random patient-specific splits.
 
-`scripts\analysis\work_H_subject_level_pi.py` binds chb01 and chb21 to the same subject group.
+`scripts/analysis/work_H_subject_level_pi.py` runs the primary strict
+subject-grouped benchmark, binds `chb01` and `chb21`, and exports compact
+held-out prediction archives for every model and seed.
 
 `scripts\analysis\work_I_far_silencing_simulation.py` studies detector silencing under low false-alarm targets.
 
-`scripts\analysis\work_J_far_constrained_sensitivity.py` reports sensitivity at a fixed false-alarm ceiling.
+`scripts/analysis/work_J_far_constrained_sensitivity.py` validates the strict
+prediction archives and reports post hoc sensitivity at a fixed FPD_300
+ceiling. It also writes the exact manuscript-compatible source table.
 
 ## Siena
 
@@ -44,4 +54,6 @@
 
 `scripts\siena\preprocess_siena.py` converts Siena EDF files into CHB-MIT-style window arrays.
 
-`scripts\siena\work_L_siena_external_psd_lda.py` trains PSD+LDA on CHB-MIT splits and evaluates directly on Siena.
+`scripts/siena/work_L_siena_external_psd_lda.py` trains PSD+LDA on strict
+CHB-MIT subject-group splits and evaluates the fitted model directly on Siena,
+without target-dataset fitting or calibration.

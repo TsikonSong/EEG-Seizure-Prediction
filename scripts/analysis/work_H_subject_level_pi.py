@@ -7,6 +7,7 @@ The output schema matches the main PI result files.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -26,9 +27,10 @@ from eval_utils import find_youden_threshold, full_evaluate
 from models import CNN1D, EEGConformer, EEGNet, TCN
 
 
-RESULTS_ROOT = Path(r"D:\seizure_results")
+RESULTS_ROOT = Path(os.environ.get("SEIZURE_RESULTS_DIR", r"D:\seizure_results"))
 OUT_ROOT = RESULTS_ROOT / "subject_level_pi"
 PSD_CACHE = OUT_ROOT / "psd_feature_cache"
+PREDICTIONS_ROOT = OUT_ROOT / "predictions"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 FS = 256
@@ -87,12 +89,17 @@ ALIASES = {
 }
 
 
-def seed_everything(seed: int) -> None:
+def seed_everything(seed: int, deterministic: bool = True) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    if deterministic:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        if torch.backends.cudnn.is_available():
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
 
 
 def extract_psd(patient: str, chunk_size: int = 256) -> tuple[np.ndarray, np.ndarray]:
@@ -118,26 +125,57 @@ def extract_psd(patient: str, chunk_size: int = 256) -> tuple[np.ndarray, np.nda
     return X, y
 
 
-def load_psd_patients(patients: list[str]) -> tuple[np.ndarray, np.ndarray]:
-    xs, ys = [], []
+def load_psd_patients(
+    patients: list[str],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    xs, ys, patient_ids = [], [], []
     for patient in patients:
         X, y = extract_psd(patient)
         xs.append(X)
         ys.append(y)
-    return np.vstack(xs), np.concatenate(ys)
+        patient_ids.extend([patient] * len(y))
+    return np.vstack(xs), np.concatenate(ys), np.asarray(patient_ids)
+
+
+def prediction_path(model_key: str, seed: int) -> Path:
+    return (
+        PREDICTIONS_ROOT
+        / model_key
+        / f"{model_key}_seed{seed}_subject_grouped_predictions.npz"
+    )
+
+
+def save_predictions(
+    model_key: str,
+    seed: int,
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    patient_ids: np.ndarray,
+) -> Path:
+    """Save compact held-out predictions used by downstream source-data scripts."""
+    path = prediction_path(model_key, seed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        y_true=np.asarray(y_true, dtype=np.int8),
+        y_prob=np.asarray(y_prob, dtype=np.float32),
+        patient_ids=np.asarray(patient_ids, dtype=str),
+    )
+    return path
 
 
 def run_psd_seed(seed: int) -> dict:
     train_pts, val_pts, test_pts = make_subject_splits(seed)
-    X_train, y_train = load_psd_patients(train_pts)
-    X_val, y_val = load_psd_patients(val_pts)
-    X_test, y_test = load_psd_patients(test_pts)
+    X_train, y_train, _ = load_psd_patients(train_pts)
+    X_val, y_val, _ = load_psd_patients(val_pts)
+    X_test, y_test, patient_ids = load_psd_patients(test_pts)
 
     clf = LinearDiscriminantAnalysis(solver="svd", priors=[0.5, 0.5])
     clf.fit(X_train, y_train)
     val_prob = clf.predict_proba(X_val)[:, 1]
     threshold = find_youden_threshold(y_val, val_prob)
     test_prob = clf.predict_proba(X_test)[:, 1]
+    save_predictions("psd_lda", seed, y_test, test_prob, patient_ids)
     m = full_evaluate(y_test, test_prob, threshold, stride_s=300)
     return result_row(seed, m, roc_auc_score(y_val, val_prob), train_pts, val_pts, test_pts)
 
@@ -189,14 +227,20 @@ def train_epoch(model, loader, optimizer, criterion) -> float:
     return total / max(1, len(loader.dataset))
 
 
-def run_deep_seed(model_key: str, seed: int, out_dir: Path) -> dict | None:
+def run_deep_seed(
+    model_key: str,
+    seed: int,
+    out_dir: Path,
+    deterministic: bool = True,
+) -> dict | None:
     cfg = MODEL_CFG[model_key]
     ckpt_path = out_dir / f"seed{seed}_best.pt"
     result_path = out_dir / f"seed{seed}_result.json"
-    if ckpt_path.exists() and result_path.exists():
+    archive_path = prediction_path(model_key, seed)
+    if archive_path.exists() and result_path.exists():
         return json.loads(result_path.read_text(encoding="utf-8"))
 
-    seed_everything(seed)
+    seed_everything(seed, deterministic=deterministic)
     train_pts, val_pts, test_pts = make_subject_splits(seed)
     train_loader, val_loader, test_loader, *_ = get_cross_patient_dataloaders(
         DATA_DIR,
@@ -208,6 +252,26 @@ def run_deep_seed(model_key: str, seed: int, out_dir: Path) -> dict | None:
     )
 
     model = cfg["cls"]().to(DEVICE)
+    if result_path.exists():
+        if not ckpt_path.exists():
+            raise FileNotFoundError(
+                f"Cannot export held-out predictions without checkpoint: {ckpt_path}"
+            )
+        try:
+            state = torch.load(ckpt_path, map_location=DEVICE, weights_only=True)
+        except TypeError:  # PyTorch < 2.0 compatibility
+            state = torch.load(ckpt_path, map_location=DEVICE)
+        model.load_state_dict(state)
+        test_prob, test_y = collect_probs(model, test_loader)
+        save_predictions(
+            model_key,
+            seed,
+            test_y,
+            test_prob,
+            test_loader.dataset.patient_ids,
+        )
+        return json.loads(result_path.read_text(encoding="utf-8"))
+
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=cfg["lr"],
@@ -252,6 +316,13 @@ def run_deep_seed(model_key: str, seed: int, out_dir: Path) -> dict | None:
     val_prob, val_y = collect_probs(model, val_loader)
     threshold = find_youden_threshold(val_y, val_prob)
     test_prob, test_y = collect_probs(model, test_loader)
+    save_predictions(
+        model_key,
+        seed,
+        test_y,
+        test_prob,
+        test_loader.dataset.patient_ids,
+    )
     metrics = full_evaluate(test_y, test_prob, threshold, stride_s=300)
     row = result_row(seed, metrics, best_val_auc, train_pts, val_pts, test_pts)
     row["elapsed_min"] = (time.time() - start) / 60
@@ -319,7 +390,7 @@ def write_split_audit() -> None:
     pd.DataFrame(patient_rows).to_csv(OUT_ROOT / "original_case_split_audit.csv", index=False)
 
 
-def run_model(model_key: str) -> None:
+def run_model(model_key: str, deterministic: bool = True) -> None:
     out_dir = OUT_ROOT / model_key
     out_dir.mkdir(parents=True, exist_ok=True)
     results_path = out_dir / "results.json"
@@ -327,17 +398,23 @@ def run_model(model_key: str) -> None:
     rows = []
     if results_path.exists():
         rows = json.loads(results_path.read_text(encoding="utf-8"))
-    done = {row["seed"] for row in rows}
+    by_seed = {int(row["seed"]): row for row in rows}
 
     for seed in SEEDS:
-        if seed in done:
+        if seed in by_seed and prediction_path(model_key, seed).exists():
             continue
         print(f"\n{MODEL_CFG[model_key]['label']} subject-level seed {seed}")
         if model_key == "psd_lda":
             row = run_psd_seed(seed)
         else:
-            row = run_deep_seed(model_key, seed, out_dir)
-        rows.append(row)
+            row = run_deep_seed(
+                model_key,
+                seed,
+                out_dir,
+                deterministic=deterministic,
+            )
+        by_seed[seed] = row
+        rows = [by_seed[current_seed] for current_seed in SEEDS if current_seed in by_seed]
         results_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
     df = pd.DataFrame(rows)
@@ -354,15 +431,54 @@ def run_model(model_key: str) -> None:
     print(summary)
 
 
+def write_prediction_manifest() -> None:
+    rows = []
+    for path in sorted(PREDICTIONS_ROOT.rglob("*.npz")):
+        rows.append(
+            {
+                "path": str(path.relative_to(OUT_ROOT)).replace(os.sep, "/"),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "bytes": path.stat().st_size,
+            }
+        )
+    if rows:
+        pd.DataFrame(rows).to_csv(OUT_ROOT / "prediction_manifest.csv", index=False)
+
+
 def main() -> None:
+    global DATA_DIR, RESULTS_ROOT, OUT_ROOT, PSD_CACHE, PREDICTIONS_ROOT
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", nargs="+", default=["psd_lda"])
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path(DATA_DIR),
+        help="CHB-MIT preprocessed arrays (or CHBMIT_PREPROCESSED_DIR).",
+    )
+    parser.add_argument(
+        "--results-root",
+        type=Path,
+        default=RESULTS_ROOT,
+        help="Root directory for experiment outputs (or SEIZURE_RESULTS_DIR).",
+    )
+    parser.add_argument(
+        "--allow-nondeterministic",
+        action="store_true",
+        help="Allow faster but potentially nondeterministic GPU operations.",
+    )
     args = parser.parse_args()
 
+    DATA_DIR = str(args.data_dir)
+    RESULTS_ROOT = args.results_root
+    OUT_ROOT = RESULTS_ROOT / "subject_level_pi"
+    PSD_CACHE = OUT_ROOT / "psd_feature_cache"
+    PREDICTIONS_ROOT = OUT_ROOT / "predictions"
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     write_split_audit()
     for model_key in normalise_models(args.models):
-        run_model(model_key)
+        run_model(model_key, deterministic=not args.allow_nondeterministic)
+    write_prediction_manifest()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the associated manuscript and this repository."
+title: "Evaluation design shapes reported performance in EEG seizure prediction"
+type: software
+authors:
+  - family-names: Song
+    given-names: Zikang
+    email: zikang.song@aut.ac.nz
+  - family-names: Pedersen
+    given-names: Mangor
+  - family-names: Henare
+    given-names: Dion
+repository-code: "https://github.com/TsikonSong/EEG-Seizure-Prediction"
+license: MIT
+keywords:
+  - EEG
+  - epilepsy
+  - seizure prediction
+  - reproducibility
+  - subject-independent evaluation

@@ -1,3 +1,4 @@
+import argparse
 import os, re, mne, warnings, gc, shutil
 import numpy as np
 
@@ -5,9 +6,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 mne.set_log_level('ERROR')
 
-DATA_DIR = r'D:\chbmit_data'
-OUT_DIR  = r'D:\chbmit_preprocessed'
-TEMP_DIR = r'D:\chbmit_temp'
+DATA_DIR = os.environ.get('CHBMIT_RAW_DIR', r'D:\chbmit_data')
+OUT_DIR = os.environ.get('CHBMIT_PREPROCESSED_DIR', r'D:\chbmit_preprocessed')
+TEMP_DIR = os.environ.get('CHBMIT_TEMP_DIR', r'D:\chbmit_temp')
 
 TARGET_CHANNELS = [
     'FP1-F7', 'F7-T7', 'T7-P7', 'P7-O1', 'FP1-F3', 'F3-C3', 'C3-P3', 'P3-O1',
@@ -286,14 +287,38 @@ def process_patient(p_id):
           f"inter-ictal: {inter_count}  total: {total_samples}{imb_warn}")
 
 
-if __name__ == '__main__':
+def main():
+    global DATA_DIR, OUT_DIR, TEMP_DIR
+
+    parser = argparse.ArgumentParser(
+        description='Preprocess CHB-MIT EDF recordings into benchmark windows.'
+    )
+    parser.add_argument('--data-dir', default=DATA_DIR)
+    parser.add_argument('--out-dir', default=OUT_DIR)
+    parser.add_argument('--temp-dir', default=TEMP_DIR)
+    parser.add_argument(
+        '--patients',
+        nargs='*',
+        help='Optional case IDs, for example chb01 chb02. Defaults to all.',
+    )
+    args = parser.parse_args()
+    DATA_DIR, OUT_DIR, TEMP_DIR = args.data_dir, args.out_dir, args.temp_dir
+
     os.makedirs(OUT_DIR, exist_ok=True)
     os.makedirs(TEMP_DIR, exist_ok=True)
     if os.path.exists(DATA_DIR):
-        patients = sorted([d for d in os.listdir(DATA_DIR) if d.startswith('chb')])
+        available = sorted([d for d in os.listdir(DATA_DIR) if d.startswith('chb')])
+        patients = args.patients or available
+        unknown = sorted(set(patients) - set(available))
+        if unknown:
+            raise ValueError(f'Unknown CHB-MIT case IDs: {unknown}')
         print(f"Found {len(patients)} patients, starting...")
         for p in patients:
             process_patient(p)
         print("\n" + "=" * 40 + "\nAll done!\n" + "=" * 40)
     else:
-        print(f"Error: data dir not found: {DATA_DIR}")
+        raise FileNotFoundError(f'Data directory not found: {DATA_DIR}')
+
+
+if __name__ == '__main__':
+    main()

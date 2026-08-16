@@ -12,7 +12,13 @@ venv/
 env/
 
 data/
-results/
+results/*
+!results/README.md
+!results/manuscript_source_data/
+!results/manuscript_source_data/*.csv
+!results/strict_subject_predictions/
+!results/strict_subject_predictions/*/
+!results/strict_subject_predictions/*/*.npz
 outputs/
 checkpoints/
 logs/
@@ -20,6 +26,7 @@ logs/
 *.edf
 *.npy
 *.npz
+!results/strict_subject_predictions/*/*.npz
 *.pt
 *.pth
 *.ckpt
